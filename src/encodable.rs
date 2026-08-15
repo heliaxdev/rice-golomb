@@ -17,6 +17,41 @@ pub trait Encodable {
     }
 }
 
+pub struct LengthLimited<T> {
+    new_len: usize,
+    inner: T,
+}
+
+impl<T: Encodable> LengthLimited<T> {
+    pub fn limit(inner: T, new_len: usize) -> Option<Self> {
+        if new_len <= inner.len() {
+            Some(Self { inner, new_len })
+        } else {
+            None
+        }
+    }
+}
+
+impl<T: Encodable> Encodable for LengthLimited<T> {
+    fn len(&self) -> usize {
+        self.new_len
+    }
+
+    fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    fn encode<S>(&self, store: &mut BitVec<S, Lsb0>)
+    where
+        S: BitStore,
+    {
+        let old_store_len = store.len();
+
+        self.inner.encode(store);
+        store.truncate(old_store_len + self.new_len);
+    }
+}
+
 impl Encodable for [u8] {
     fn len(&self) -> usize {
         (*self).len() << 3
@@ -112,5 +147,30 @@ mod tests {
         }
 
         assert_eq!(<[u8] as Encodable>::len(&bits), store.len());
+    }
+
+    #[test]
+    fn length_limit() {
+        let mut store: BitVec<usize> = BitVec::new();
+
+        const BITMAP: u64 = 0b111010u64;
+
+        let limited = LengthLimited::limit(BITMAP, 3).unwrap();
+
+        assert_eq!(limited.len(), 3);
+        assert!(store.get(3).is_none());
+
+        limited.encode(&mut store);
+
+        for (i, expected_bit) in [false, true, false].into_iter().enumerate() {
+            assert_eq!(expected_bit, *store.get(i).unwrap());
+        }
+
+        assert_eq!(limited.len(), store.len());
+
+        assert!(store.get(3).is_none());
+        store.push(false);
+
+        assert!(store.get(3).is_some_and(|bit| !*bit));
     }
 }
