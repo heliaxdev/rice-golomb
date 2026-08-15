@@ -64,12 +64,14 @@ impl_encodable_int!(i16);
 impl_encodable_int!(i32);
 impl_encodable_int!(i64);
 impl_encodable_int!(i128);
+impl_encodable_int!(isize);
 
 impl_encodable_int!(u8);
 impl_encodable_int!(u16);
 impl_encodable_int!(u32);
 impl_encodable_int!(u64);
 impl_encodable_int!(u128);
+impl_encodable_int!(usize);
 
 #[cfg(test)]
 mod tests {
