@@ -79,7 +79,9 @@ mod tests {
     fn extend_from_int() {
         let mut store: BitVec<usize> = BitVec::new();
 
-        0b111010u64.encode(&mut store);
+        const BITMAP: u64 = 0b111010u64;
+
+        BITMAP.encode(&mut store);
 
         for (i, expected_bit) in [false, true, false, true, true, true]
             .into_iter()
@@ -87,6 +89,8 @@ mod tests {
         {
             assert_eq!(expected_bit, *store.get(i).unwrap());
         }
+
+        assert_eq!(<u64 as Encodable>::len(&BITMAP), store.len());
     }
 
     #[test]
@@ -104,5 +108,7 @@ mod tests {
                 assert_eq!(expected_bit, *store.get(global_idx).unwrap());
             }
         }
+
+        assert_eq!(<[u8] as Encodable>::len(&bits), store.len());
     }
 }
