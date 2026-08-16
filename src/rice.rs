@@ -34,7 +34,7 @@ macro_rules! impl_rice_int {
 
                 assert!((self & HIGH_BIT) != HIGH_BIT, "high bit cannot be set");
 
-                ((1 << self) - 1) << 1
+                (1 << self) - 1
             }
 
             fn quotient<const MAX_BITS: u32>(self) -> Self {
@@ -121,17 +121,17 @@ mod tests {
             },
             TestCase {
                 value: 0x0000400000001337,
-                pattern: vec![false, true], // 0b10
+                pattern: vec![true, false], // 0b01
             },
             TestCase {
                 value: 0x0000C00000ABCDEF,
-                pattern: vec![false, true, true, true], // 0b1110
+                pattern: vec![true, true, true, false], // 0b0111
             },
             TestCase {
                 value: 0x0004000000000123,
-                pattern: std::iter::once(false)
-                    .chain(std::iter::repeat_n(true, 16))
-                    .collect(), // 0b11111111111111110
+                pattern: std::iter::repeat_n(true, 16)
+                    .chain(std::iter::once(false))
+                    .collect(), // 0b01111111111111111
             },
         ];
 
@@ -204,18 +204,18 @@ mod tests {
         assert_eq!(x, 0b0, "got {x:b}");
 
         let x = 1u64.to_unary();
-        assert_eq!(x, 0b10, "got {x:b}");
+        assert_eq!(x, 0b1, "got {x:b}");
 
         let x = 2u64.to_unary();
-        assert_eq!(x, 0b110, "got {x:b}");
+        assert_eq!(x, 0b11, "got {x:b}");
 
         let x = 3u64.to_unary();
-        assert_eq!(x, 0b1110, "got {x:b}");
+        assert_eq!(x, 0b111, "got {x:b}");
 
         let x = 4u64.to_unary();
-        assert_eq!(x, 0b11110, "got {x:b}");
+        assert_eq!(x, 0b1111, "got {x:b}");
 
         let x = 63u64.to_unary();
-        assert_eq!(x, !1, "got {x:b}");
+        assert_eq!(x, !(1 << 63), "got {x:b}");
     }
 }
