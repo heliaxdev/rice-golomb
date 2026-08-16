@@ -46,6 +46,12 @@ trait RiceAux {
 
 trait Sealed {}
 
+macro_rules! max_for_bits {
+    ($max_bits:expr) => {
+        !(const { !(0) } << $max_bits)
+    };
+}
+
 macro_rules! impl_rice_int {
     ($int:ty) => {
         impl Sealed for $int {}
@@ -59,7 +65,7 @@ macro_rules! impl_rice_int {
                     <$int>::BITS + 1,
                 );
 
-                (1 << self) - 1
+                max_for_bits!(self)
             }
 
             fn quotient<const MAX_BITS: u32>(self) -> Self {
@@ -77,7 +83,7 @@ macro_rules! impl_rice_int {
                 }
 
                 // truncate to specified max bits
-                self & ((1 << MAX_BITS) - 1)
+                self & max_for_bits!(MAX_BITS)
             }
         }
 
