@@ -13,7 +13,7 @@ pub use self::rice::Rice;
 pub type BitVec<S> = bitvec::vec::BitVec<S, Lsb0>;
 pub type BitSlice<S> = bitvec::slice::BitSlice<S, Lsb0>;
 
-pub struct Encoder<I, const EXPECTED_MAX: u32> {
+pub struct Encoder<I, const EXPECTED_MAX_BITS: u32> {
     _marker: PhantomData<I>,
 }
 
