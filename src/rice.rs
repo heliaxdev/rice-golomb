@@ -1,4 +1,8 @@
+use std::ops;
+
+use bitvec::field::BitField;
 use bitvec::order::Lsb0;
+use bitvec::slice::BitSlice;
 use bitvec::store::BitStore;
 use bitvec::vec::BitVec;
 
@@ -9,9 +13,27 @@ pub trait Rice: Sealed + Copy {
     fn rice_encode_quotient<const MAX_BITS: u32, S: BitStore>(self, store: &mut BitVec<S, Lsb0>);
     fn rice_encode_remainder<const MAX_BITS: u32, S: BitStore>(self, store: &mut BitVec<S, Lsb0>);
 
+    fn rice_decode_quotient<const MAX_BITS: u32, S: BitStore>(
+        store: &BitSlice<S, Lsb0>,
+    ) -> Option<(Self, usize)>;
+    fn rice_decode_remainder<const MAX_BITS: u32, S: BitStore>(
+        store: &BitSlice<S, Lsb0>,
+    ) -> Option<Self>;
+
     fn rice_encode<const MAX_BITS: u32, S: BitStore>(self, store: &mut BitVec<S, Lsb0>) {
         self.rice_encode_quotient::<MAX_BITS, _>(store);
         self.rice_encode_remainder::<MAX_BITS, _>(store);
+    }
+
+    fn rice_decode<const MAX_BITS: u32, S: BitStore>(
+        store: &BitSlice<S, Lsb0>,
+    ) -> Option<(Self, usize)>
+    where
+        Self: ops::Shl<u32, Output = Self> + ops::BitOr<Output = Self>,
+    {
+        let (quot, skip) = Self::rice_decode_quotient::<MAX_BITS, _>(store)?;
+        let rem = Self::rice_decode_remainder::<MAX_BITS, _>(store.get(skip..)?)?;
+        Some(((quot << MAX_BITS) | rem, skip + MAX_BITS as usize))
     }
 }
 
@@ -30,9 +52,12 @@ macro_rules! impl_rice_int {
 
         impl RiceAux for $int {
             fn to_unary(self) -> Self {
-                const HIGH_BIT: $int = 1 << const { <$int>::BITS - 1 };
-
-                assert!((self & HIGH_BIT) != HIGH_BIT, "high bit cannot be set");
+                assert!(
+                    self < const { <$int>::BITS as $int },
+                    "{self} encoded as unary would exceed {} bits, requiring exactly {} bits",
+                    <$int>::BITS,
+                    <$int>::BITS + 1,
+                );
 
                 (1 << self) - 1
             }
@@ -62,11 +87,23 @@ macro_rules! impl_rice_int {
                 store: &mut BitVec<S, Lsb0>,
             ) {
                 let binary_quotient = self.quotient::<MAX_BITS>();
-                let unary_quotient = binary_quotient.to_unary();
 
-                LengthLimited::limit(unary_quotient, (binary_quotient + 1) as usize)
-                    .unwrap()
-                    .encode(store);
+                if binary_quotient < const { <$int>::BITS as $int } {
+                    let unary_quotient = binary_quotient.to_unary();
+
+                    LengthLimited::limit(unary_quotient, (binary_quotient + 1) as usize)
+                        .unwrap()
+                        .encode(store);
+
+                    return;
+                }
+
+                // bit quotients exceeding <$int>::BITS (including sentinel bit)
+                for _ in 0..binary_quotient {
+                    store.push(true);
+                }
+
+                store.push(false);
             }
 
             fn rice_encode_remainder<const MAX_BITS: u32, S: BitStore>(
@@ -78,6 +115,30 @@ macro_rules! impl_rice_int {
                 LengthLimited::limit(binary_remainder, MAX_BITS as usize)
                     .unwrap()
                     .encode(store);
+            }
+
+            fn rice_decode_quotient<const MAX_BITS: u32, S: BitStore>(
+                store: &BitSlice<S, Lsb0>,
+            ) -> Option<($int, usize)> {
+                let mut rsp = 0;
+
+                store.iter().enumerate().find_map(|(i, bit_is_set)| {
+                    if !*bit_is_set {
+                        return Some((rsp, i + 1));
+                    }
+
+                    rsp += 1;
+
+                    None
+                })
+            }
+
+            fn rice_decode_remainder<const MAX_BITS: u32, S: BitStore>(
+                store: &BitSlice<S, Lsb0>,
+            ) -> Option<$int> {
+                let max_pos = (MAX_BITS as usize).min(store.len());
+
+                Some(store[..max_pos].load::<$int>().remainder::<MAX_BITS>())
             }
         }
     };
@@ -100,6 +161,90 @@ impl_rice_int!(usize);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rice_decode() {
+        let mut store: BitVec<usize> = BitVec::new();
+
+        // ---------------------------------------------------------
+        // basic tests
+        // ---------------------------------------------------------
+        255u8.rice_encode::<7, _>(&mut store);
+        assert_eq!(store.len(), 9);
+        let (decoded, skip) = u8::rice_decode::<7, _>(&store).unwrap();
+        assert_eq!(decoded, 255u8);
+        assert_eq!(skip, 9);
+        store.clear();
+
+        1024u32.rice_encode::<10, _>(&mut store);
+        assert_eq!(store.len(), 12);
+        let (decoded, skip) = u32::rice_decode::<10, _>(&store).unwrap();
+        assert_eq!(decoded, 1024u32);
+        assert_eq!(skip, 12);
+        store.clear();
+
+        // ---------------------------------------------------------
+        // 46-bit vectors
+        // ---------------------------------------------------------
+
+        0u64.rice_encode::<46, _>(&mut store);
+        assert_eq!(store.len(), 47); // Q=0 (1 bit), R=0 (46 bits)
+        let (decoded, skip) = u64::rice_decode::<46, _>(&store).unwrap();
+        assert_eq!(decoded, 0u64);
+        assert_eq!(skip, 47);
+        store.clear();
+
+        0x0000400000001337u64.rice_encode::<46, _>(&mut store);
+        assert_eq!(store.len(), 48); // Q=1 (2 bits), R=0x1337 (46 bits)
+        let (decoded, skip) = u64::rice_decode::<46, _>(&store).unwrap();
+        assert_eq!(decoded, 0x0000400000001337u64);
+        assert_eq!(skip, 48);
+        store.clear();
+
+        0x0004000000000123u64.rice_encode::<46, _>(&mut store);
+        assert_eq!(store.len(), 63); // Q=16 (17 bits), R=0x0123 (46 bits)
+        let (decoded, skip) = u64::rice_decode::<46, _>(&store).unwrap();
+        assert_eq!(decoded, 0x0004000000000123u64);
+        assert_eq!(skip, 63);
+        store.clear();
+
+        // ---------------------------------------------------------
+        // continuous stream decoding; verify we can decode
+        // multiple sequential elements by correctly advancing
+        // via the `skip` offset
+        // ---------------------------------------------------------
+        let stream_values = [
+            0u32,    // edge case 0
+            15u32,   // fits perfectly in remainder (Q=0)
+            42u32,   // Q=1, R=10
+            100u32,  // Q=3, R=4
+            9999u32, // large quotient
+        ];
+
+        // encode all into a single bitstream using MAX_BITS = 5
+        for &v in stream_values.iter() {
+            v.rice_encode::<5, _>(&mut store);
+        }
+
+        let mut offset = 0;
+        for &expected in stream_values.iter() {
+            // slice the bitvec from the current offset to the end
+            let slice = &store[offset..];
+
+            let (decoded, skip) = u32::rice_decode::<5, _>(slice).expect("failed to decode");
+
+            assert_eq!(decoded, expected, "mismatch at offset {offset}");
+            offset += skip;
+        }
+
+        // ensure we perfectly consumed the entire bitstream
+        assert_eq!(
+            offset,
+            store.len(),
+            "stream length mismatch after full decode"
+        );
+        store.clear();
+    }
 
     #[test]
     fn encode_quotient() {
