@@ -4,25 +4,42 @@ use bitvec::slice::BitSlice;
 use bitvec::store::BitStore;
 use bitvec::vec::BitVec;
 
+/// Type that can be written into a [`BitVec`] as a sequence of bits.
+///
+/// It is the low-level primitive used by the Rice coding machinery,
+/// but it can also be used directly to push raw bits into a store
+/// when Rice coding is not wanted.
 pub trait Encodable {
+    /// Append the bit representation of `self` to `store`.
     fn encode<T>(&self, store: &mut BitVec<T, Lsb0>)
     where
         T: BitStore;
 
+    /// Number of bits `self` occupies when encoded.
     fn len(&self) -> usize;
 
+    /// Return `true` if [`len`](Self::len) is `0`.
     #[inline]
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
 }
 
+/// Wrapper that limits the number of bits written by an [`Encodable`] value.
+///
+/// When encoded, only the first `new_len` bits of the inner value are written
+/// to the store; the rest are discarded. Attempts to construct a
+/// `LengthLimited` whose limit exceeds the inner value's
+/// [`len`](Encodable::len) return `None`.
 pub struct LengthLimited<T> {
     new_len: usize,
     inner: T,
 }
 
 impl<T: Encodable> LengthLimited<T> {
+    /// Construct a `LengthLimited` that will write at most `new_len` bits of
+    /// `inner`. Returns `None` if `new_len` is greater than the inner value's
+    /// bit length.
     pub fn limit(inner: T, new_len: usize) -> Option<Self> {
         if new_len <= inner.len() {
             Some(Self { inner, new_len })

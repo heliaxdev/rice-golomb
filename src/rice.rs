@@ -8,23 +8,50 @@ use bitvec::vec::BitVec;
 
 use crate::encodable::{Encodable, LengthLimited};
 
+/// Rice-Golomb coding for integer types.
+///
+/// The trait is implemented for all signed and unsigned integer types and is
+/// sealed, so it cannot be implemented outside of this crate. The quotient is
+/// written in unary and the remainder in fixed-width binary using `MAX_BITS`
+/// bits.
+///
+/// The default [`rice_encode`](Self::rice_encode) and
+/// [`rice_decode`](Self::rice_decode) methods handle a complete value. The
+/// `_quotient` and `_remainder` variants are exposed so callers can inspect or
+/// manipulate each half of the encoding independently.
 #[allow(private_bounds)]
 pub trait Rice: Sealed + Copy {
+    /// Encode the quotient portion of `self` into `store` as a unary stream.
     fn rice_encode_quotient<const MAX_BITS: u32, S: BitStore>(self, store: &mut BitVec<S, Lsb0>);
+
+    /// Encode the remainder portion of `self` into `store` using `MAX_BITS`
+    /// bits.
     fn rice_encode_remainder<const MAX_BITS: u32, S: BitStore>(self, store: &mut BitVec<S, Lsb0>);
 
+    /// Decode the unary-encoded quotient from `store`. Returns the quotient
+    /// and the number of bits consumed.
     fn rice_decode_quotient<const MAX_BITS: u32, S: BitStore>(
         store: &BitSlice<S, Lsb0>,
     ) -> Option<(Self, usize)>;
+
+    /// Decode the fixed-width remainder from `store` using `MAX_BITS` bits.
     fn rice_decode_remainder<const MAX_BITS: u32, S: BitStore>(
         store: &BitSlice<S, Lsb0>,
     ) -> Option<Self>;
 
+    /// Encode `self` into `store` by writing the quotient followed by the
+    /// remainder.
     fn rice_encode<const MAX_BITS: u32, S: BitStore>(self, store: &mut BitVec<S, Lsb0>) {
         self.rice_encode_quotient::<MAX_BITS, _>(store);
         self.rice_encode_remainder::<MAX_BITS, _>(store);
     }
 
+    /// Decode a single value from `store`. Returns the decoded value and the
+    /// total number of bits consumed, which lets callers advance through a
+    /// packed stream of multiple values.
+    ///
+    /// Returns `None` if `store` does not contain enough bits to decode a
+    /// full value.
     fn rice_decode<const MAX_BITS: u32, S: BitStore>(
         store: &BitSlice<S, Lsb0>,
     ) -> Option<(Self, usize)>
