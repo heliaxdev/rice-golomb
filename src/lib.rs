@@ -67,8 +67,8 @@ impl<I, const EXPECTED_MAX_BITS: u32> Encoder<I, EXPECTED_MAX_BITS> {
     /// The remainder portion uses `EXPECTED_MAX_BITS` bits. Returns `None` if
     /// `store` does not contain enough bits to decode a full value. When
     /// decoding several values packed back to back, advance through the slice
-    /// using the bit count returned by [`Rice::rice_decode`] instead of this
-    /// method.
+    /// using the bit count returned by [`Encoder::decode_and_skip`] instead of
+    /// calling this method.
     pub fn decode<S>(store: &BitSlice<S>) -> Option<I>
     where
         I: Encodable + Rice + ops::Shl<u32, Output = I> + ops::BitOr<Output = I>,
@@ -76,5 +76,18 @@ impl<I, const EXPECTED_MAX_BITS: u32> Encoder<I, EXPECTED_MAX_BITS> {
     {
         let (decoded, _) = I::rice_decode::<EXPECTED_MAX_BITS, _>(store)?;
         Some(decoded)
+    }
+
+    /// Decode a single value from `store` using Rice-Golomb coding,
+    /// and return the number of bits to skip in a [`BitSlice`] stream.
+    ///
+    /// The remainder portion uses `EXPECTED_MAX_BITS` bits. Returns `None` if
+    /// `store` does not contain enough bits to decode a full value.
+    pub fn decode_and_skip<S>(store: &BitSlice<S>) -> Option<(I, usize)>
+    where
+        I: Encodable + Rice + ops::Shl<u32, Output = I> + ops::BitOr<Output = I>,
+        S: BitStore,
+    {
+        I::rice_decode::<EXPECTED_MAX_BITS, _>(store)
     }
 }
