@@ -83,7 +83,7 @@ macro_rules! impl_rice_int {
                 }
 
                 // truncate to specified max bits
-                self & max_for_bits!(MAX_BITS)
+                self & const { max_for_bits!(MAX_BITS) }
             }
         }
 
