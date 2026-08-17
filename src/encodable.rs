@@ -105,7 +105,7 @@ macro_rules! impl_encodable_int {
                 let new_len = old_len + const { Self::BITS as usize };
 
                 store.resize(new_len, false);
-                store[old_len..].store(*self);
+                store[old_len..].store_le(*self);
             }
         }
     };

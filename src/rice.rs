@@ -171,7 +171,7 @@ macro_rules! impl_rice_int {
             ) -> Option<$int> {
                 let max_pos = (MAX_BITS as usize).min(store.len());
 
-                Some(store[..max_pos].load::<$int>().remainder::<MAX_BITS>())
+                Some(store[..max_pos].load_le::<$int>().remainder::<MAX_BITS>())
             }
         }
     };
