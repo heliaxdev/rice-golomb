@@ -2,6 +2,13 @@
 name = "rice-golomb"
 version = "0.1.0"
 edition = "2024"
+authors = ["Heliax AG"]
+license = "MIT"
+description = "A small Rust library for Rice-Golomb coding, a form of entropy coding used in lossless compression."
+repository = "https://github.com/heliaxdev/rice-golomb"
+readme = "README.md"
+keywords = ["compression", "entropy", "golomb", "rice", "encoding"]
+categories = ["compression", "encoding", "algorithms"]
 
 [dependencies]
 bitvec = "1.1.1"
