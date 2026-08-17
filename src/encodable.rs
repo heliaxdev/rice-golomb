@@ -34,11 +34,11 @@ impl<T: Encodable> LengthLimited<T> {
 
 impl<T: Encodable> Encodable for LengthLimited<T> {
     fn len(&self) -> usize {
-        self.new_len
+        self.new_len.min(self.inner.len())
     }
 
     fn is_empty(&self) -> bool {
-        self.inner.is_empty()
+        self.new_len == 0 || self.inner.is_empty()
     }
 
     fn encode<S>(&self, store: &mut BitVec<S, Lsb0>)
