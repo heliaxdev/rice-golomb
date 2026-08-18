@@ -131,12 +131,22 @@ macro_rules! impl_rice_int {
                     return;
                 }
 
-                // bit quotients exceeding <$int>::BITS (including sentinel bit)
-                for _ in 0..binary_quotient {
-                    store.push(true);
-                }
+                // bit quotients exceeding <$int>::BITS (including sentinel bit):
+                // batch the unary ones in word-sized chunks via store_le
+                unlikely(|| {
+                    let bits = const { <$int>::BITS as $int };
+                    let full_chunks = binary_quotient / bits;
+                    let remainder = binary_quotient % bits;
 
-                store.push(false);
+                    let all_ones: $int = !0;
+                    for _ in 0..full_chunks {
+                        all_ones.encode(store);
+                    }
+
+                    LengthLimited::limit(max_for_bits!(remainder), (remainder + 1) as usize)
+                        .unwrap()
+                        .encode(store);
+                });
             }
 
             fn rice_encode_remainder<const MAX_BITS: u32, S: BitStore>(
@@ -153,16 +163,46 @@ macro_rules! impl_rice_int {
             fn rice_decode_quotient<const MAX_BITS: u32, S: BitStore>(
                 store: &BitSlice<S, Lsb0>,
             ) -> Option<($int, usize)> {
-                let mut rsp = 0;
+                let bits = const { <$int>::BITS as usize };
+                let mut rsp: $int = 0;
 
-                store.iter().enumerate().find_map(|(i, bit_is_set)| {
+                // scan the first word bit-by-bit (covers the common case of
+                // small quotients without an expensive unaligned load_le)
+                for (i, bit_is_set) in store.iter().enumerate().take(bits) {
                     if !*bit_is_set {
                         return Some((rsp, i + 1));
                     }
-
                     rsp += 1;
+                }
 
-                    None
+                let mut offset = store.len().min(bits);
+
+                // all bits consumed without finding the terminator
+                if offset == store.len() {
+                    return None;
+                }
+
+                // slow path: word-skipping for long unary runs (quotient >= BITS)
+                unlikely(|| {
+                    while offset + bits <= store.len() {
+                        let word = store[offset..offset + bits].load_le::<$int>();
+                        if word != const { !0 } {
+                            break;
+                        }
+                        rsp += bits as $int;
+                        offset += bits;
+                    }
+
+                    store[offset..]
+                        .iter()
+                        .enumerate()
+                        .find_map(|(i, bit_is_set)| {
+                            if !*bit_is_set {
+                                return Some((rsp, offset + i + 1));
+                            }
+                            rsp += 1;
+                            None
+                        })
                 })
             }
 
@@ -190,6 +230,15 @@ impl_rice_int!(u32);
 impl_rice_int!(u64);
 impl_rice_int!(u128);
 impl_rice_int!(usize);
+
+#[cold]
+#[inline(never)]
+fn unlikely<F, T>(f: F) -> T
+where
+    F: FnOnce() -> T,
+{
+    f()
+}
 
 #[cfg(test)]
 mod tests {
