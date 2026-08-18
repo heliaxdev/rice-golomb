@@ -91,3 +91,61 @@ impl<I, const EXPECTED_MAX_BITS: u32> Encoder<I, EXPECTED_MAX_BITS> {
         I::rice_decode::<EXPECTED_MAX_BITS, _>(store)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::iter;
+
+    use super::*;
+
+    #[test]
+    fn u64_value_stream_compaction() {
+        type BackingInt = usize;
+
+        type RegInt = u64;
+        const MAX_BITS: u32 = 8;
+
+        let mut store = BitVec::<BackingInt>::new();
+
+        let sorted_elements = [
+            20, 21, 26, 36, 49, 55, 62, 79, 135, 282, 291, 340, 525, 537, 569, 644, 665, 759, 841,
+            975, 2518, 3475, 4577, 4750, 4998, 5499, 5566, 5952, 7035, 7939, 8506, 9240,
+        ];
+
+        for elem in sorted_elements {
+            Encoder::<RegInt, MAX_BITS>::encode(&elem, &mut store);
+            assert_eq!(elem, Encoder::<RegInt, MAX_BITS>::decode(&store).unwrap(),);
+            eprintln!("encoded len of {elem} => {}", store.len());
+            store.clear();
+        }
+
+        for diff in iter::once(0)
+            .chain(sorted_elements.iter().copied())
+            .zip(sorted_elements.iter().copied())
+            .map(|(prev, next)| next - prev)
+        {
+            Encoder::<RegInt, MAX_BITS>::encode(&diff, &mut store);
+        }
+
+        assert!(sorted_elements.len() * 64 > store.len());
+
+        let mut ptr = 0;
+        let mut decoded_elements = Vec::with_capacity(sorted_elements.len());
+        let mut last = None;
+
+        while let Some((decoded_diff, skip)) = store
+            .get(ptr..)
+            .and_then(|store| Encoder::<RegInt, MAX_BITS>::decode_and_skip(store))
+        {
+            let decoded = decoded_diff + last.unwrap_or_default();
+
+            decoded_elements.push(decoded);
+
+            ptr += skip;
+            last = Some(decoded);
+        }
+
+        assert_eq!(sorted_elements.len(), decoded_elements.len());
+        assert_eq!(&sorted_elements[..], decoded_elements);
+    }
+}
