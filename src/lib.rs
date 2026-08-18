@@ -135,7 +135,7 @@ mod tests {
 
         while let Some((decoded_diff, skip)) = store
             .get(ptr..)
-            .and_then(|store| Encoder::<RegInt, MAX_BITS>::decode_and_skip(store))
+            .and_then(Encoder::<RegInt, MAX_BITS>::decode_and_skip)
         {
             let decoded = decoded_diff + last.unwrap_or_default();
 
