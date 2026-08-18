@@ -196,7 +196,7 @@ macro_rules! impl_rice_int {
                 // slow path: word-skipping for long unary runs (quotient >= BITS)
                 unlikely(|| {
                     while offset + BITS_USIZE <= store.len() {
-                        let word = store[offset..offset + BITS_USIZE].load_le::<$int>();
+                        let word = store.get(offset..offset + BITS_USIZE)?.load_le::<$int>();
                         if word != const { !0 } {
                             break;
                         }
@@ -204,7 +204,8 @@ macro_rules! impl_rice_int {
                         offset += BITS_USIZE;
                     }
 
-                    store[offset..]
+                    store
+                        .get(offset..)?
                         .iter()
                         .enumerate()
                         .find_map(|(i, bit_is_set)| {
@@ -222,7 +223,12 @@ macro_rules! impl_rice_int {
             ) -> Option<$int> {
                 let max_pos = (MAX_BITS as usize).min(store.len());
 
-                Some(store[..max_pos].load_le::<$int>().remainder::<MAX_BITS>())
+                Some(
+                    store
+                        .get(..max_pos)?
+                        .load_le::<$int>()
+                        .remainder::<MAX_BITS>(),
+                )
             }
         }
     };
