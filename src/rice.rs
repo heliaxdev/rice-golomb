@@ -77,6 +77,9 @@ macro_rules! max_for_bits {
     ($max_bits:expr) => {
         !(const { !(0) } << $max_bits)
     };
+    ($type:ty, $max_bits:expr) => {
+        !(const { !(0 as $type) } << $max_bits)
+    };
 }
 
 macro_rules! impl_rice_int {
@@ -134,18 +137,24 @@ macro_rules! impl_rice_int {
                 // bit quotients exceeding <$int>::BITS (including sentinel bit):
                 // batch the unary ones in word-sized chunks via store_le
                 unlikely(|| {
-                    let bits = const { <$int>::BITS as $int };
-                    let full_chunks = binary_quotient / bits;
-                    let remainder = binary_quotient % bits;
+                    const BITS_NATIVE: $int = <$int>::BITS as $int;
+                    const ALL_ONES: $int = !0;
 
-                    let all_ones: $int = !0;
+                    let full_chunks = binary_quotient / BITS_NATIVE;
+                    let remainder = binary_quotient % BITS_NATIVE;
+
                     for _ in 0..full_chunks {
-                        all_ones.encode(store);
+                        ALL_ONES.encode(store);
                     }
 
-                    LengthLimited::limit(max_for_bits!(remainder), (remainder + 1) as usize)
-                        .unwrap()
-                        .encode(store);
+                    LengthLimited::limit(
+                        max_for_bits!($int, remainder),
+                        // NOTE: the remainder is always a small int, the result of
+                        // adding one will still fit in a usize
+                        (remainder + 1) as usize,
+                    )
+                    .unwrap()
+                    .encode(store);
                 });
             }
 
@@ -163,19 +172,21 @@ macro_rules! impl_rice_int {
             fn rice_decode_quotient<const MAX_BITS: u32, S: BitStore>(
                 store: &BitSlice<S, Lsb0>,
             ) -> Option<($int, usize)> {
-                let bits = const { <$int>::BITS as usize };
+                const BITS_USIZE: usize = <$int>::BITS as usize;
+                const BITS_NATIVE: $int = <$int>::BITS as $int;
+
                 let mut rsp: $int = 0;
 
                 // scan the first word bit-by-bit (covers the common case of
                 // small quotients without an expensive unaligned load_le)
-                for (i, bit_is_set) in store.iter().enumerate().take(bits) {
+                for (i, bit_is_set) in store.iter().enumerate().take(BITS_USIZE) {
                     if !*bit_is_set {
                         return Some((rsp, i + 1));
                     }
                     rsp += 1;
                 }
 
-                let mut offset = store.len().min(bits);
+                let mut offset = store.len().min(BITS_USIZE);
 
                 // all bits consumed without finding the terminator
                 if offset == store.len() {
@@ -184,13 +195,13 @@ macro_rules! impl_rice_int {
 
                 // slow path: word-skipping for long unary runs (quotient >= BITS)
                 unlikely(|| {
-                    while offset + bits <= store.len() {
-                        let word = store[offset..offset + bits].load_le::<$int>();
+                    while offset + BITS_USIZE <= store.len() {
+                        let word = store[offset..offset + BITS_USIZE].load_le::<$int>();
                         if word != const { !0 } {
                             break;
                         }
-                        rsp += bits as $int;
-                        offset += bits;
+                        rsp += BITS_NATIVE;
+                        offset += BITS_USIZE;
                     }
 
                     store[offset..]
@@ -326,6 +337,16 @@ mod tests {
             "stream length mismatch after full decode"
         );
         store.clear();
+    }
+
+    #[test]
+    fn encode_quotient_slow() {
+        let mut store: BitVec<usize> = BitVec::new();
+
+        u64::MAX.rice_encode_quotient::<50, _>(&mut store);
+        let (quot, _) = u64::rice_decode_quotient::<50, _>(&store).unwrap();
+
+        assert_eq!(quot, u64::MAX >> 50);
     }
 
     #[test]
